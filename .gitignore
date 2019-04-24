@@ -1,0 +1,5 @@
+argtable-3.1.2-amalgamation/
+*.o
+*.so
+*.isoish
+phile

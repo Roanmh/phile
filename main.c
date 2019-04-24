@@ -1,27 +1,95 @@
+#include <unistd.h>
+#include <fcntl.h>
+
 #include "argtable3.h"
+#include "disk.h"
 
-int read(const char **file_name) {
+extern int get_poem_len(const char **poem_name);
+extern void get_poem(const char **poem_name, char* poem_buffer);
+
+const char* DEF_LOC = "disk.isoish";
+
+enum subcmd {READ, WRITE, APPEND, FORMAT, MAP};
+
+int file_read(const int disk, const char **file_name) {
+  
   printf("I read %s! I read %s!\n", *file_name, *file_name);
+}
+
+int file_write(const int disk, const char **file_name, const char **poem_name) {
+  int16_t f_ind = get_file_index(disk, file_name);
+
+  if (f_ind == -1) {
+    f_ind = create_file(disk, file_name);
+    if (f_ind == -1) {
+      printf("Failed to Create file.");
+      return -1;
+    }
+  } else {
+    clear_file(disk, f_ind);
+  }
+
+  // TODO Optimize for file writes
+  int buff_size = get_poem_len(poem_name);
+  // TODO Make sure this doesn't leave a half-made file
+  if (buff_size == 0) {
+    printf("Invalid Poem name.");
+    return -1;
+  }
+  char* buffer = malloc(buff_size);
+  get_poem(poem_name, buffer);
+  printf("Length of poem \"%s\": %i\n", *poem_name, buff_size);
+  /* printf("%s\n", buffer); */
+  append_poem(disk, f_ind, buffer);
+  free(buffer);
+
   return 0;
 }
 
-int format() {
-  printf("\"format format\" ... \"format format\"\n");
-  return 0;
-}
-
-int write(const char **file_name, const char **poem_name) {
-  printf("%s: %s\n", *file_name, *poem_name);
-  return 0;
-}
-
-int append(const char **file_name, const char **poem_name) {
+int file_append(const int disk, const char **file_name, const char **poem_name) {
   printf("Append %s: %s\n", *file_name, *poem_name);
   return 0;
 }
 
-int map() {
+int format(const int disk) {
+  return format_disk(disk);
+}
+
+int map(const int disk) {
   printf("I'm the map! I'm the map!\n");
+  return 0;
+}
+
+int with_open_disk(enum subcmd sc, const char **file_name,
+                   const char **poem_name) {
+  const int disk = open(DEF_LOC, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+  if (disk < 0) {
+    printf("Disk access failed. Check for other programs or correct permissions");
+    return -1;
+  }
+
+  switch (sc) {
+  case READ:
+    file_read(disk, file_name);
+    break;
+  case WRITE:
+    file_write(disk, file_name, poem_name);
+    break;
+  case APPEND:
+    file_append(disk, file_name, poem_name);
+    break;
+  case FORMAT:
+    format(disk);
+    break;
+  case MAP:
+    map(disk);
+    break;
+  }
+
+  if (close(disk)) {
+    printf("Disk access failed on close. This really shouldn't happen.");
+    return -1;
+  }
   return 0;
 }
 
@@ -29,14 +97,16 @@ int main(int argc, char **argv) {
   const char* prog_name = "phile";
   /// Define all subcommand syntaxes.
   // Read
-  struct arg_rex *sbcmd_rd = arg_rex1(NULL, NULL, "read", NULL, ARG_REX_ICASE, "Read and display contents of a file");
+  struct arg_rex *sbcmd_rd = arg_rex1(NULL, NULL, "read", NULL, ARG_REX_ICASE,
+                                      "Read and display contents of a file");
   struct arg_str *file_str_rd = arg_str1(NULL, NULL, "<filename>", "File name");
   struct arg_end *end_rd = arg_end(20);
   void* argtable_rd[] = {sbcmd_rd, file_str_rd, end_rd};
   int nerrors_rd;
 
   // Write
-  struct arg_rex *sbcmd_wr = arg_rex1(NULL, NULL, "write", NULL, ARG_REX_ICASE, "Write file to the disk");
+  struct arg_rex *sbcmd_wr = arg_rex1(NULL, NULL, "write", NULL, ARG_REX_ICASE,
+                                      "Write file to the disk");
   struct arg_str *file_str_wr = arg_str1(NULL, NULL, "<filename>", "File name");
   struct arg_str *poem_str_wr = arg_str1(NULL, NULL, "<poemname>", "Poem name");
   struct arg_end *end_wr = arg_end(20);
@@ -44,7 +114,8 @@ int main(int argc, char **argv) {
   int nerrors_wr;
 
   // Append
-  struct arg_rex *sbcmd_ap = arg_rex1(NULL, NULL, "append", NULL, ARG_REX_ICASE, "Append file to the disk");
+  struct arg_rex *sbcmd_ap = arg_rex1(NULL, NULL, "append", NULL, ARG_REX_ICASE,
+                                      "Append file to the disk");
   struct arg_str *file_str_ap = arg_str1(NULL, NULL, "<filename>", "File name");
   struct arg_str *poem_str_ap = arg_str1(NULL, NULL, "<poemname>", "Poem name");
   struct arg_end *end_ap = arg_end(20);
@@ -52,13 +123,15 @@ int main(int argc, char **argv) {
   int nerrors_ap;
 
   // Format
-  struct arg_rex *sbcmd_fmt = arg_rex1(NULL, NULL, "format", NULL, ARG_REX_ICASE, NULL);
+  struct arg_rex *sbcmd_fmt = arg_rex1(NULL, NULL, "format", NULL,
+                                       ARG_REX_ICASE, NULL);
   struct arg_end *end_fmt = arg_end(20);
   void* argtable_fmt[] = {sbcmd_fmt, end_fmt};
   int nerrors_fmt;
 
   // Map
-  struct arg_rex *sbcmd_mp = arg_rex1(NULL, NULL, "map", NULL, ARG_REX_ICASE, NULL);
+  struct arg_rex *sbcmd_mp = arg_rex1(NULL, NULL, "map", NULL, ARG_REX_ICASE,
+                                      NULL);
   struct arg_end *end_mp = arg_end(20);
   void* argtable_mp[] = {sbcmd_mp, end_mp};
   int nerrors_mp;
@@ -72,15 +145,15 @@ int main(int argc, char **argv) {
 
   /// Execute function for given subcommand
   if (nerrors_rd == 0)
-    return read(file_str_rd->sval);
+    return with_open_disk(READ, file_str_rd->sval, NULL);
   else if (nerrors_wr == 0)
-    return write(file_str_wr->sval, poem_str_wr->sval);
+    return with_open_disk(WRITE, file_str_wr->sval, poem_str_wr->sval);
   else if (nerrors_ap == 0)
-    return append(file_str_ap->sval, poem_str_ap->sval);
+    return with_open_disk(APPEND, file_str_ap->sval, poem_str_ap->sval);
   else if (nerrors_fmt == 0)
-    return format();
+    return with_open_disk(FORMAT, NULL, NULL);
   else if (nerrors_mp == 0)
-    return map();
+    return with_open_disk(MAP, NULL, NULL);
 
   /// Return relevant errors
   if (sbcmd_rd->count > 0) {
