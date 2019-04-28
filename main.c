@@ -12,25 +12,27 @@ const char* DEF_LOC = "disk.isoish";
 enum subcmd {READ, WRITE, APPEND, FORMAT, MAP};
 
 int file_read(const int disk, const char **file_name) {
-  
   printf("I read %s! I read %s!\n", *file_name, *file_name);
+  return 0;
 }
 
 int file_write(const int disk, const char **file_name, const char **poem_name) {
-  int16_t f_ind = get_file_index(disk, file_name);
+  struct FileRecord file;
+  int success = get_file_and_start_block(disk, file_name, &file);
+  if (success == -1) return -1;
 
-  if (f_ind == -1) {
-    f_ind = create_file(disk, file_name);
-    if (f_ind == -1) {
+  // If no matching file name
+  if (success == -2) {
+    if (create_file(disk, file_name, &file) < 0) {
       printf("Failed to Create file.");
       return -1;
     }
   } else {
-    clear_file(disk, f_ind);
+    clear_file(disk, file.start);
   }
 
   // TODO Optimize for file writes
-  int buff_size = get_poem_len(poem_name);
+  int32_t buff_size = get_poem_len(poem_name);
   // TODO Make sure this doesn't leave a half-made file
   if (buff_size == 0) {
     printf("Invalid Poem name.");
@@ -40,7 +42,7 @@ int file_write(const int disk, const char **file_name, const char **poem_name) {
   get_poem(poem_name, buffer);
   printf("Length of poem \"%s\": %i\n", *poem_name, buff_size);
   /* printf("%s\n", buffer); */
-  append_poem(disk, f_ind, buffer);
+  append_poem(disk, &file, buffer, &buff_size);
   free(buffer);
 
   return 0;

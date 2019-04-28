@@ -1,23 +1,8 @@
 // Functions related to the basic operations of the filesystem.
 
 #include "disk.h"
-
-#define BLOCK_SIZE 4096
-#define DISK_SIZE (BLOCK_SIZE * 4096)
-
-#define END_BLOCK_CODE -2
-#define FREE_BLOCK_CODE -1
-#define SPECIAL_BLOCK_CODE -3
-#define DIR_START_BLOCK_INDEX 2
-#define FAT_RECORD_BYTE_LEN 2
-#define DIR_RECORD_BYTE_LEN 32
-#define MAX_FILE_NAME_LEN 26
-
-struct FileRecord {
-  char file_name[MAX_FILE_NAME_LEN];
-  int16_t start;
-  int size;
-};
+#include <stdio.h>
+#include <errno.h>
 
 int dir_size(const int disk) {
   int entry_cnt = 0;
@@ -57,47 +42,69 @@ int16_t first_avail_block(const int disk) {
     if (fat_entry == FREE_BLOCK_CODE) return i;
   }
 
-  printf("Failed to wrtie: disk full!");
+  printf("Failed to write: disk full!");
   return -1;
 }
 
 // TODO Support linked dir.
+/* int write_block(const int disk, int16_t block_idx, char *buffer, size_t len) { */
+/*   int16_t prev_loc = lseek(disk, 0, SEEK_CUR); */
+
+/*   lseek(disk, buffer, BLOCK_SIZE); */
+/*   write(disk, block_idx * BLOCK_SIZE, len); */
+/* } */
+
 int extend_dir(const int disk) {
   return 0;
 }
 
-int read_file(const int disk, int16_t file_index)
+int read_file(const int disk, int16_t file_index) {}
 
-int get_file_index(const int disk, const char **write_name) {
-  char existing_name[MAX_FILE_NAME_LEN];
-  lseek(disk, DIR_START_BLOCK_INDEX * 4096, SEEK_SET);
+int get_file_and_start_block(const int disk, const char **write_name,
+                               struct FileRecord *file) {
+  if (lseek(disk, DIR_START_BLOCK_INDEX * 4096, SEEK_SET) < 0) {
+    perror("Lseek failed in get_file_and_start_block");
+    return -1;
+  }
 
   // TODO Support linked dir
   for (int i = 0; i < BLOCK_SIZE / DIR_RECORD_BYTE_LEN; i++) {
-    read(disk, &existing_name, MAX_FILE_NAME_LEN);
-    if (!strcmp(existing_name, *write_name)) {
-      int16_t file_index;
+    read(disk, &(file->file_name), MAX_FILE_NAME_LEN);
+
+    // Not sure why I had to cast here but
+    // TODO Make sure this doesn't break for 26 char file names
+    if (!strcmp((const char*)&(file->file_name), *write_name)) {
       // After reading the file name the 'disk head' is at the start value.
-      read(disk, &file_index, sizeof(file_index));
-      return file_index;
+      read(disk, &(file->start), sizeof(file->start) + sizeof(file->size));
+      file->dir_index = i * DIR_RECORD_BYTE_LEN;
+      return 0;
     }
-    lseek(disk, DIR_RECORD_BYTE_LEN - MAX_FILE_NAME_LEN, SEEK_CUR);
+
+    if (lseek(disk, DIR_RECORD_BYTE_LEN - MAX_FILE_NAME_LEN, SEEK_CUR) < 0) {
+      perror("Lseek failed in get_file_and_start_block");
+      return -1;
+    }
   }
-  return -1;
+  // No matching file
+  return -2;
 }
 
-int append_poem(const int disk, int16_t file_index, char *buffer) {
+int append_poem(const int disk, struct FileRecord *file, char *buffer, int32_t *buff_size) {
   off_t disk_pos;
+  int16_t block_index;
 
-  // TODO Update length in directory entry.
-  /* int length; */
-  /* lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE + ) */
+  // Write File size ro dir
+  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE
+                   + file->dir_index
+                   + sizeof(file->file_name) + sizeof(file->start), SEEK_SET);
+  write(disk, buff_size, sizeof(*buff_size));
 
-  // TODO Seek to end of file
+  // TODO Seek to end of existing file
 
+  block_index = file->start;
   while (strlen(buffer)) {
     // Seek to block
-    disk_pos = lseek(disk, file_index * BLOCK_SIZE, SEEK_SET);
+    disk_pos = lseek(disk, block_index * BLOCK_SIZE, SEEK_SET);
 
     // Write rest of buffer or 4096 bytes and move buffer pointer
     // TODO Support appending in middle of block
@@ -107,11 +114,13 @@ int append_poem(const int disk, int16_t file_index, char *buffer) {
 
     // If more bytes in buffer: allocate new block
     if (strlen(buffer)) {
-      file_index = assign_block(disk, file_index);
+      block_index = assign_block(disk, block_index);
     }
   }
 
-  mark_end_block(disk, file_index);
+  mark_end_block(disk, block_index);
+
+  return 0;
 }
 
 int mark_end_block(const int disk, int16_t file_index) {
@@ -174,13 +183,28 @@ int clear_file(const int disk, int16_t file_index) {
 
 }
 
-int create_file(const int disk, const char **file_name) {
-  int16_t entry_offset = dir_size(disk);
-  int16_t avail_block_ind = first_avail_block(disk);
-  if (avail_block_ind == -1) return -1;
+
+int create_file(const int disk, const char **file_name, struct FileRecord *file) {
   int16_t end_block_code = END_BLOCK_CODE;
-  int32_t new_file_size = 0;
   off_t disk_pos;
+
+  // Fill out file Stuct
+  int name_len = strlen(*file_name) < MAX_FILE_NAME_LEN ? strlen(*file_name)
+    : MAX_FILE_NAME_LEN;
+  strncpy(file->file_name, *file_name, name_len); // Copy to file struct
+
+  file->start = first_avail_block(disk);
+  if (file->start <= DIR_START_BLOCK_INDEX) return -1;
+  /* int16_t avail_block_ind = first_avail_block(disk); */
+  /* if (avail_block_ind == -1) return -1; */
+
+  file->size = 0;
+  /* int32_t new_file_size = 0; */
+
+  file->dir_index = dir_size(disk);
+  printf("Creating file at Dir index: %i\n", file->dir_index);
+  /* int16_t entry_offset = dir_size(disk); */
+
 
   // TODO Support linked dir.
   // Check size for expansion
@@ -188,22 +212,23 @@ int create_file(const int disk, const char **file_name) {
   /*   extend_dir(disk); */
   /* } */
 
-  // Find first available dir entry
-  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE + entry_offset, SEEK_SET);
 
+  // Find first available dir entry
+  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE + file->dir_index, SEEK_SET);
 
   // Write file_name, assign first block, size=0
-  int name_len = strlen(*file_name) < MAX_FILE_NAME_LEN? strlen(*file_name) : MAX_FILE_NAME_LEN;
   write(disk, *file_name, name_len);
-  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE + entry_offset + MAX_FILE_NAME_LEN, SEEK_SET);
-  write(disk, &avail_block_ind, sizeof(avail_block_ind));
-  write(disk, &new_file_size, sizeof(new_file_size));
+  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE
+                   + file->dir_index + MAX_FILE_NAME_LEN, SEEK_SET);
+  write(disk, &file->start, sizeof(file->start));
+  write(disk, &file->size, sizeof(file->size));
 
   // Set FAT table entry
-  disk_pos = lseek(disk, avail_block_ind * FAT_RECORD_BYTE_LEN, SEEK_SET);
+  disk_pos = lseek(disk, file->start * FAT_RECORD_BYTE_LEN, SEEK_SET);
   write(disk, &end_block_code, sizeof(end_block_code));
 
-  return avail_block_ind;
+
+  return 0;
 }
 
 int format_disk(const int disk) {
