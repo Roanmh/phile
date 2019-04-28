@@ -11,8 +11,18 @@ const char* DEF_LOC = "disk.isoish";
 
 enum subcmd {READ, WRITE, APPEND, FORMAT, MAP};
 
-int file_read(const int disk, const char **file_name) {
-  printf("I read %s! I read %s!\n", *file_name, *file_name);
+int read_file_cmd(const int disk, const char **file_name) {
+  struct FileRecord file;
+  int success = get_file_and_start_block(disk, file_name, &file);
+  if (success == -1) return -1;
+
+  if (success == -2) {
+    printf("File not found.");
+    return -1;
+  }
+
+  if (read_file(disk, &file) == 0) return -1;
+
   return 0;
 }
 
@@ -49,7 +59,34 @@ int file_write(const int disk, const char **file_name, const char **poem_name) {
 }
 
 int file_append(const int disk, const char **file_name, const char **poem_name) {
-  printf("Append %s: %s\n", *file_name, *poem_name);
+  struct FileRecord file;
+  int success = get_file_and_start_block(disk, file_name, &file);
+  if (success == -1) return -1;
+
+  // If no matching file name
+  if (success == -2) {
+    if (create_file(disk, file_name, &file) < 0) {
+      printf("Failed to Create file.");
+      return -1;
+    }
+  } else {
+    /* clear_file(disk, file.start); */ // Append by not deteling the sutfz
+  }
+
+  // TODO Optimize for file writes
+  int32_t buff_size = get_poem_len(poem_name);
+  // TODO Make sure this doesn't leave a half-made file (It does)
+  if (buff_size == 0) {
+    printf("Invalid Poem name.");
+    return -1;
+  }
+  char* buffer = malloc(buff_size);
+  get_poem(poem_name, buffer);
+  printf("Length of poem \"%s\": %i\n", *poem_name, buff_size);
+  /* printf("%s\n", buffer); */
+  append_poem(disk, &file, buffer, &buff_size);
+  free(buffer);
+
   return 0;
 }
 
@@ -58,7 +95,29 @@ int format(const int disk) {
 }
 
 int map(const int disk) {
-  printf("I'm the map! I'm the map!\n");
+  int16_t table[BLOCK_SIZE];
+  char map[BLOCK_SIZE];
+  read_fat_table(disk, (int16_t*)&table);
+
+  map[0] = 'F';
+  map[1] = 'F';
+  map[2] = 'D';
+
+  for (size_t i = 3; i < BLOCK_SIZE; i++) {
+    switch (table[i]) {
+    case FREE_BLOCK_CODE:
+      map[i] = '_';
+      break;
+    default:
+      map[i] = '*';
+    }
+  }
+
+  for (size_t i = 0; i < BLOCK_SIZE; i++) {
+    printf("%c", map[i]);
+    if (!((i + 1) % 64)) printf("\n");
+  }
+
   return 0;
 }
 
@@ -72,7 +131,7 @@ int with_open_disk(enum subcmd sc, const char **file_name,
 
   switch (sc) {
   case READ:
-    file_read(disk, file_name);
+    read_file_cmd(disk, file_name);
     break;
   case WRITE:
     file_write(disk, file_name, poem_name);

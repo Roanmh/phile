@@ -25,10 +25,12 @@ struct FileRecord {
   char file_name[MAX_FILE_NAME_LEN];
   int16_t start;
   int32_t size;
-  int16_t dir_index;
+  int16_t dir_len;
 };
 
 int dir_size(const int disk);
+int read_file(int disk, struct FileRecord* file);
+
 int16_t first_avail_block(const int disk);
 int extend_dir(const int disk);
 int get_file_and_start_block(const int disk, const char **write_name,
@@ -42,5 +44,8 @@ int create_file(const int disk, const char **file_name, struct FileRecord *file)
 int format_disk(const int disk);
 
 int verify_disk(int disk, int inv_errs);
+void read_fat_table(int disk, int16_t* table);
+
+
 
 #endif

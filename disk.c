@@ -58,7 +58,23 @@ int extend_dir(const int disk) {
   return 0;
 }
 
-int read_file(const int disk, int16_t file_index) {}
+// Read File and print to stdout return 0 on succcess.
+int read_file(const int disk, struct FileRecord *file) {
+  int16_t block_index = file->start;
+  char block[BLOCK_SIZE];
+
+  while (block_index != END_BLOCK_CODE) {
+
+    lseek(disk, block_index * BLOCK_SIZE, SEEK_SET);
+    read(disk, &block, BLOCK_SIZE);
+    write(STDOUT_FILENO, &block, BLOCK_SIZE);
+
+    lseek(disk, block_index * FAT_RECORD_BYTE_LEN, SEEK_SET);
+    read(disk, &block_index, sizeof(block_index));
+  }
+
+  return 0;
+}
 
 int get_file_and_start_block(const int disk, const char **write_name,
                                struct FileRecord *file) {
@@ -76,7 +92,7 @@ int get_file_and_start_block(const int disk, const char **write_name,
     if (!strcmp((const char*)&(file->file_name), *write_name)) {
       // After reading the file name the 'disk head' is at the start value.
       read(disk, &(file->start), sizeof(file->start) + sizeof(file->size));
-      file->dir_index = i * DIR_RECORD_BYTE_LEN;
+      file->dir_len = i * DIR_RECORD_BYTE_LEN;
       return 0;
     }
 
@@ -92,25 +108,35 @@ int get_file_and_start_block(const int disk, const char **write_name,
 int append_poem(const int disk, struct FileRecord *file, char *buffer, int32_t *buff_size) {
   off_t disk_pos;
   int16_t block_index;
+  int16_t next_block_index = file->start;
+  int16_t block_offset = file->size % BLOCK_SIZE; // If file exists use this offset to not overwrite.
+
 
   // Write File size ro dir
   disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE
-                   + file->dir_index
+                   + file->dir_len
                    + sizeof(file->file_name) + sizeof(file->start), SEEK_SET);
   write(disk, buff_size, sizeof(*buff_size));
 
   // TODO Seek to end of existing file
+  while (next_block_index != END_BLOCK_CODE) {
+    block_index = next_block_index;
+    lseek(disk, block_index * FAT_RECORD_BYTE_LEN, SEEK_SET);
+    read(disk, &next_block_index, sizeof(block_index));
+  }
 
-  block_index = file->start;
+
   while (strlen(buffer)) {
     // Seek to block
     disk_pos = lseek(disk, block_index * BLOCK_SIZE, SEEK_SET);
 
     // Write rest of buffer or 4096 bytes and move buffer pointer
     // TODO Support appending in middle of block
-    int write_len = strlen(buffer) < BLOCK_SIZE ? strlen(buffer) : BLOCK_SIZE;
+    int write_len = (strlen(buffer) < BLOCK_SIZE ? strlen(buffer) : BLOCK_SIZE)
+      - block_offset;
     write(disk, buffer, write_len);
     buffer += write_len;
+    block_offset = 0; // After writing until the end of a block, the offset is zero.
 
     // If more bytes in buffer: allocate new block
     if (strlen(buffer)) {
@@ -181,6 +207,7 @@ int clear_file(const int disk, int16_t file_index) {
 
   }
 
+  return 0;
 }
 
 
@@ -201,8 +228,8 @@ int create_file(const int disk, const char **file_name, struct FileRecord *file)
   file->size = 0;
   /* int32_t new_file_size = 0; */
 
-  file->dir_index = dir_size(disk);
-  printf("Creating file at Dir index: %i\n", file->dir_index);
+  file->dir_len = dir_size(disk);
+  printf("Creating file at Dir index: %i\n", file->dir_len);
   /* int16_t entry_offset = dir_size(disk); */
 
 
@@ -214,12 +241,12 @@ int create_file(const int disk, const char **file_name, struct FileRecord *file)
 
 
   // Find first available dir entry
-  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE + file->dir_index, SEEK_SET);
+  disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE + file->dir_len, SEEK_SET);
 
   // Write file_name, assign first block, size=0
   write(disk, *file_name, name_len);
   disk_pos = lseek(disk, DIR_START_BLOCK_INDEX * BLOCK_SIZE
-                   + file->dir_index + MAX_FILE_NAME_LEN, SEEK_SET);
+                   + file->dir_len + MAX_FILE_NAME_LEN, SEEK_SET);
   write(disk, &file->start, sizeof(file->start));
   write(disk, &file->size, sizeof(file->size));
 
@@ -278,4 +305,9 @@ int verify_disk(int disk, int inv_errs) {
 
   // Passed all implemented checks
   return 0;
+}
+
+void read_fat_table(int disk, int16_t *table) {
+  lseek(disk, 0, SEEK_SET);
+  read(disk, table, 2 * BLOCK_SIZE);
 }
