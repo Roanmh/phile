@@ -1,5 +1,5 @@
-main: main.o disk.o argtable3.o libpoetry_map.so
-		gcc -L. -g -o phile main.o disk.o argtable3.o -lm -lpoetry_map
+main: main.o disk.o argtable3.o poetry_map.o
+		g++ -g -o phile main.o disk.o argtable3.o -lm poetry_map.o
 #                                              ^^^
 #   This is for reasons described here:
 #   http://www.linuxforums.org/forum/programming-scripting/125526-c-gcc-math-h-lm.html
@@ -13,8 +13,8 @@ argtable3.o: argtable3.c argtable3.h
 disk.o: disk.c disk.h
 		gcc -g -c disk.c
 
-libpoetry_map.so: poetry_map.cpp
-	  g++ -g -o libpoetry_map.so -shared -fPIC poetry_map.cpp
+poetry_map.o: poetry_map.cpp
+	  g++ -g -c poetry_map.cpp
 
 clean:
 		rm -f phile *.o *.so
