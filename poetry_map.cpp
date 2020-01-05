@@ -1,6 +1,3 @@
-// PoetryMap2.cpp : This file contains the 'main' function. Program execution begins and ends there.
-//
-
 #include <iostream>
 #include <string>
 #include <map>
@@ -76,32 +73,25 @@ map<string, string> initializePoetry() {
 	return poems;
 }
 
-// int main()
-// {
-// 	map<string, string> poetry;
-// 	poetry = initializePoetry();
-//     std::cout << "Hello World!\n"; 
-// 	for (auto i : poetry) {
-// 		cout << i.second << endl;
-// 	}
-// }
 
+// Finds the length of a poem given by `poem_name`
+// Args:
+//   poem_name: Pointer to c-string of the poem name
+// Returns: poem length as an int
 extern "C" int get_poem_len(const char **poem_name) {
+  // initializePoetry is called every time becuase the main process will only
+  // call these functions twice before exiting. This is simpler than requireing
+  // the program to initialize the map first.
   return initializePoetry()[*poem_name].length();
 }
 
+// Fills `poem_buffer` with the poem specified by `poem_name`
+// Args:
+//   poem_name: Pointer to a c-string of the poem name
+//   poem_buffer: Pointer to a buffer to be filled
+//                NOTE: Use get_poem_len() to size the buffer correctly
 extern "C" void get_poem(const char **poem_name, char* poem_buffer) {
+  // See get_poem_len comment about initializePoetry
   string poem = initializePoetry()[*poem_name];
   poem.copy(poem_buffer, poem.length(), 0);
 }
-
-// Run program: Ctrl + F5 or Debug > Start Without Debugging menu
-// Debug program: F5 or Debug > Start Debugging menu
-
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
